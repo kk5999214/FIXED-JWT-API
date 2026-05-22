@@ -23,24 +23,39 @@ class TokenRequest(BaseModel):
     uid: Optional[str] = None
     password: Optional[str] = None
     region: Optional[str] = None
+    access_token: Optional[str] = None
+    open_id: Optional[str] = None
 
 @app.get("/")
 async def root():
     return {
         "Status": "JWT Generator Live Static Load Balancer Vercel 💀",
         "Loaded_Regions": list(accounts_db.keys()),
-        "Endpoints": "/api/token?region=IND OR /api/token?uid=xxx&password=xxx"
+        "Endpoints": "/api/token?region=IND OR /api/token?uid=xxx&password=xxx OR /api/token?access_token=xxx&open_id=yyy"
     }
 
 @app.get("/api/token")
 async def get_token(
     region: Optional[str] = Query(None),
     uid: Optional[str] = Query(None), 
-    password: Optional[str] = Query(None)
+    password: Optional[str] = Query(None),
+    access_token: Optional[str] = Query(None),
+    open_id: Optional[str] = Query(None)
 ):
     
+    # Mode 3 Direct Access Token Bypass Login
+    if access_token and open_id:
+        target_region = (region or "IND").upper()
+        try:
+            result = await create_jwt(uid="Bypass", password="None", region=target_region, bypass_token=access_token, bypass_id=open_id)
+            response_data = {"Developer": "BITTU__DEV", "Status": "Bypass Mode Active"}
+            response_data.update(result)
+            return response_data
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
     # Mode 1 Direct Uid And Password Login
-    if uid and password:
+    elif uid and password:
         target_region = (region or "IND").upper()
         try:
             result = await create_jwt(uid, password, target_region)
@@ -88,8 +103,14 @@ async def get_token(
         raise HTTPException(status_code=500, detail=f"Extraction Failed After {max_retries} Attempts Last Error {last_error}")
 
     else:
-        raise HTTPException(status_code=400, detail="Strictly Require Either Uid And Password OR Region Parameters To Proceed")
+        raise HTTPException(status_code=400, detail="Strictly Require Uid And Password OR Region OR Access Token And Open Id Parameters To Proceed")
 
 @app.post("/api/token")
 async def post_token(payload: TokenRequest = Body(...)):
-    return await get_token(region=payload.region, uid=payload.uid, password=payload.password)
+    return await get_token(
+        region=payload.region, 
+        uid=payload.uid, 
+        password=payload.password,
+        access_token=payload.access_token,
+        open_id=payload.open_id
+    )
