@@ -1,5 +1,3 @@
-# app/main.py
-
 import json
 import os
 import random
@@ -24,99 +22,74 @@ accounts_db = load_accounts()
 class TokenRequest(BaseModel):
     uid: Optional[str] = None
     password: Optional[str] = None
-    reg: Optional[str] = None
     region: Optional[str] = None
 
 @app.get("/")
 async def root():
     return {
-        "status": "JWT Generator Live (Static Load Balancer) 💀",
-        "loaded_regions": list(accounts_db.keys()),
-        "endpoints": "/api/token?region=IND"
+        "Status": "JWT Generator Live Static Load Balancer Vercel 💀",
+        "Loaded_Regions": list(accounts_db.keys()),
+        "Endpoints": "/api/token?region=IND OR /api/token?uid=xxx&password=xxx"
     }
 
 @app.get("/api/token")
 async def get_token(
-    reg: Optional[str] = Query(None), 
     region: Optional[str] = Query(None),
     uid: Optional[str] = Query(None), 
     password: Optional[str] = Query(None)
 ):
-    target_region = region or reg
     
-    # 💀 THE 400 FIX: Default to IND if manual override is used but region is forgotten
-    if uid and password and not target_region:
-        target_region = "IND"
-        
-    if not target_region:
-        raise HTTPException(status_code=400, detail="Missing region parameter. You must explicitly specify ?region= (Example: ?region=IND)")
-        
-    target_region = target_region.upper()
-    aliases = {"PAK": "PK", "INDIA": "IND", "BGD": "BD", "BRA": "BR", "VNM": "VN", "SGP": "SG", "THA": "TH"}
-    target_region = aliases.get(target_region, target_region)
-
+    # Mode 1 Direct Uid And Password Login
     if uid and password:
+        target_region = (region or "IND").upper()
         try:
             result = await create_jwt(uid, password, target_region)
-            return {"developer": "BITTU__DEV", "uid": uid, "password": password, **result}
+            response_data = {"Developer": "BITTU__DEV", "Uid": uid, "Password": password}
+            response_data.update(result)
+            return response_data
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    if target_region not in accounts_db:
-        raise HTTPException(status_code=404, detail=f"Unsupported or incorrect region: {target_region}")
+    # Mode 2 Random Account From Region Pool
+    elif region:
+        target_region = region.upper()
+        
+        if target_region not in accounts_db or not accounts_db[target_region]:
+            raise HTTPException(status_code=404, detail=f"No Accounts Available For Region {target_region}")
+            
+        account_pool = accounts_db[target_region]
+        
+        max_retries = 2
+        last_error = "Unknown Error"
+        
+        for attempt in range(max_retries):
+            active_account = random.choice(account_pool)
+            active_uid = active_account.get("uid")
+            active_pwd = active_account.get("password")
+            
+            if not active_uid or not active_pwd:
+                continue 
+                
+            try:
+                result = await create_jwt(active_uid, active_pwd, target_region)
+                response_data = {
+                    "Developer": "BITTU__DEV",
+                    "Status": "Active",
+                    "Region": target_region,
+                    "Attempt": attempt + 1,
+                    "Uid": active_uid,
+                    "Password": active_pwd
+                }
+                response_data.update(result)
+                return response_data
+            except Exception as e:
+                last_error = str(e)
+                
+        raise HTTPException(status_code=500, detail=f"Extraction Failed After {max_retries} Attempts Last Error {last_error}")
 
-    account_pool = accounts_db[target_region]
-    if isinstance(account_pool, list):
-        active_account = random.choice(account_pool)
     else:
-        active_account = account_pool
-
-    active_uid = active_account.get("uid")
-    active_pwd = active_account.get("password")
-
-    if not active_uid or not active_pwd:
-        raise HTTPException(status_code=500, detail=f"Malformed account data for {target_region}")
-
-    try:
-        result = await create_jwt(active_uid, active_pwd, target_region)
-        return {
-            "developer": "BITTU__DEV",
-            "status": "active",
-            "region": target_region,
-            "uid": active_uid,
-            "password": active_pwd,
-            **result
-        }
-    except Exception as e:
-        err_msg = str(e)
-        if "ACCOUNT_BANNED" in err_msg or "error" in err_msg.lower():
-            raise HTTPException(status_code=403, detail=f"BANNED_ACCOUNT: {active_uid}. Error: {err_msg}")
-        else:
-            raise HTTPException(status_code=500, detail=err_msg)
+        raise HTTPException(status_code=400, detail="Strictly Require Either Uid And Password OR Region Parameters To Proceed")
 
 @app.post("/api/token")
 async def post_token(payload: TokenRequest = Body(...)):
-    try:
-        target_region = payload.region or payload.reg
-        
-        # 💀 THE 400 FIX FOR POST REQUESTS
-        if payload.uid and payload.password and not target_region:
-            target_region = "IND"
-            
-        if not target_region:
-            raise HTTPException(status_code=400, detail="Missing region parameter in JSON payload.")
-            
-        target_region = target_region.upper()
-        aliases = {"PAK": "PK", "INDIA": "IND", "BGD": "BD", "BRA": "BR", "VNM": "VN", "SGP": "SG", "THA": "TH"}
-        target_region = aliases.get(target_region, target_region)
-        
-        if payload.uid and payload.password:
-            result = await create_jwt(payload.uid, payload.password, target_region)
-            return {"developer": "BITTU__DEV", "uid": payload.uid, "password": payload.password, **result}
-        else:
-            return await get_token(region=target_region)
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return await get_token(region=payload.region, uid=payload.uid, password=payload.password)
