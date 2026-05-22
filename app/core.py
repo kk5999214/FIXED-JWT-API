@@ -1,7 +1,5 @@
-# App Core Py
-
 import json
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 import httpx
 from Crypto.Cipher import AES
@@ -56,10 +54,16 @@ async def get_access_token(client: httpx.AsyncClient, uid: str, password: str) -
 
     return data.get("access_token", "0"), data.get("open_id", "0")
 
-# Re Added The Region Parameter To Support Your Dynamic Server Map
-async def create_jwt(uid: str, password: str, region: str = "IND") -> Dict[str, Any]:
+async def create_jwt(uid: str, password: str, region: str = "IND", bypass_token: Optional[str] = None, bypass_id: Optional[str] = None) -> Dict[str, Any]:
     async with httpx.AsyncClient(http2=False, verify=False) as client:
-        access_token, open_id = await get_access_token(client, uid, password)
+        
+        # Check If We Are Using The Bypass Mode Or Normal Login
+        if bypass_token and bypass_id:
+            access_token = bypass_token
+            open_id = bypass_id
+        else:
+            access_token, open_id = await get_access_token(client, uid, password)
+            
         if access_token == "0":
             raise RuntimeError("ACCOUNT BANNED Failed To Obtain Access Token")
 
@@ -87,7 +91,6 @@ async def create_jwt(uid: str, password: str, region: str = "IND") -> Dict[str, 
             "ReleaseVersion": settings.RELEASE_VERSION,
         }
 
-        # Restored The Settings Check To Ensure Correct Server Routing For Every Account
         login_base = settings.REGION_MAP.get(region.upper(), "https://loginbp.ggpolarbear.com")
         major_login_url = f"{login_base}/MajorLogin"
 
