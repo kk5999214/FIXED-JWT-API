@@ -1,4 +1,4 @@
-# app/core.py
+# App Core Py
 
 import json
 from typing import Tuple, Dict, Any
@@ -12,7 +12,8 @@ from ff_proto import freefire_pb2
 
 def pkcs7_pad(b: bytes, block_size: int = 16) -> bytes:
     pad_len = block_size - (len(b) % block_size)
-    return b + bytes([pad_len]) * pad_len
+    padding = bytes([pad_len for _ in range(pad_len)])
+    return b + padding
 
 def aes_cbc_encrypt(key: bytes, iv: bytes, plaintext: bytes) -> bytes:
     cipher = AES.new(key, AES.MODE_CBC, iv)
@@ -47,19 +48,20 @@ async def get_access_token(client: httpx.AsyncClient, uid: str, password: str) -
     r = await client.post(settings.OAUTH_URL, json=payload, headers=headers, timeout=settings.TIMEOUT)
     
     if r.status_code != 200:
-        raise RuntimeError(f"ACCOUNT_BANNED or OAUTH API HTTP Error {r.status_code}: {r.text}")
+        raise RuntimeError(f"ACCOUNT BANNED Or OAUTH API HTTP Error {r.status_code}")
 
     data = r.json().get("data", {})
     if 'error' in data:
-        raise RuntimeError(f"ACCOUNT_BANNED or API Error: {data.get('error_description', data['error'])}")
+        raise RuntimeError(f"ACCOUNT BANNED Or API Error {data.get('error_description', data['error'])}")
 
     return data.get("access_token", "0"), data.get("open_id", "0")
 
+# Re Added The Region Parameter To Support Your Dynamic Server Map
 async def create_jwt(uid: str, password: str, region: str = "IND") -> Dict[str, Any]:
     async with httpx.AsyncClient(http2=False, verify=False) as client:
         access_token, open_id = await get_access_token(client, uid, password)
         if access_token == "0":
-            raise RuntimeError("ACCOUNT_BANNED - Failed to obtain access token.")
+            raise RuntimeError("ACCOUNT BANNED Failed To Obtain Access Token")
 
         login_req = {
             "open_id": open_id,
@@ -85,6 +87,7 @@ async def create_jwt(uid: str, password: str, region: str = "IND") -> Dict[str, 
             "ReleaseVersion": settings.RELEASE_VERSION,
         }
 
+        # Restored The Settings Check To Ensure Correct Server Routing For Every Account
         login_base = settings.REGION_MAP.get(region.upper(), "https://loginbp.ggpolarbear.com")
         major_login_url = f"{login_base}/MajorLogin"
 
@@ -95,15 +98,14 @@ async def create_jwt(uid: str, password: str, region: str = "IND") -> Dict[str, 
             timeout=settings.TIMEOUT,
         )
         
-        # 💀 THE 500 FIX: Safely catch WAF blocks instead of crashing the app
         if r.status_code not in (200, 201):
-            raise RuntimeError(f"Garena Rejected Login! HTTP {r.status_code} - WAF Body: {r.text[:200]}")
+            raise RuntimeError(f"Garena Rejected Login HTTP {r.status_code}")
 
         res_msg = freefire_pb2.LoginRes()
         try:
             res_msg.ParseFromString(r.content)
         except Exception:
-            raise RuntimeError(f"Failed to decode Protobuf! Garena sent invalid data (WAF Block/Update?). Raw Response: {r.text[:200]}")
+            raise RuntimeError(f"Failed To Decode Protobuf Garena Sent Invalid Data")
 
         token = res_msg.token if res_msg.token else "0"
         lock_region = res_msg.lock_region if res_msg.lock_region else ""
@@ -113,11 +115,11 @@ async def create_jwt(uid: str, password: str, region: str = "IND") -> Dict[str, 
             res_dict = json.loads(json_format.MessageToJson(res_msg))
             err_str = str(res_dict).lower()
             if "ban" in err_str or "reason" in err_str:
-                raise RuntimeError("ACCOUNT_BANNED - Profile restricted by Garena.")
-            raise RuntimeError(f"Failed to obtain JWT. Response details: {res_dict}")
+                raise RuntimeError("ACCOUNT BANNED Profile Restricted By Garena")
+            raise RuntimeError(f"Failed To Obtain JWT")
 
         return {
-            "token": token,
-            "lockRegion": lock_region,
-            "serverUrl": server_url,
+            "Token": token,
+            "LockRegion": lock_region,
+            "ServerUrl": server_url,
         }
